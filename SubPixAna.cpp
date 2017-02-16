@@ -18,6 +18,7 @@
 #include <fstream>
 #include <string>
 #include <sstream>
+#include <time.h>
 #include <boost/program_options.hpp>
 using namespace boost::program_options;
 
@@ -25,45 +26,48 @@ using namespace boost::program_options;
 
 
 void GetRandomRange(Double_t *r,Double_t *Rs,Double_t *Rw,int SINGLE,int DOUBLE);
+void WriteLogFile(int enem,int eneM,double r,int count1,int count2);
 
 #ifdef __CINT__
 int SubPixAna(const TString rootFile){
 #else
-int SubPixAna(const TString rootFile);
+  int SubPixAna(const TString rootFile,Int_t energy_m,Int_t energy_M);
 
 int main(int argc, char* argv[]){
 
   // Option Analysis //
   TString dataFile;
+  Int_t enem,eneM;
   options_description opt("Options");
   opt.add_options()
     ("help,h","HELP")
+    ("enem,m",value<int>()->default_value(50),"Couning Energy Minimum (PH)")
+    ("eneM,M",value<int>()->default_value(100),"Couning Energy Maximum (PH)")
     ("file,f",value<std::string>(),"Event List ROOT File");
   variables_map vm;
   store(parse_command_line(argc, argv, opt), vm);
   notify(vm);
   if( vm.count("help") || !vm.count("file") ){
-    std::cout << "Usage  :./SubPixAna -f <Event List Root File>" << std::endl;
+    std::cout << "Usage  :./SubPixAna -f <Event List Root File> -m <Energy Min(PH)> -M <Energy Max(PH)>" << std::endl;
     std::cout << opt << std::endl;
     return 0;
   }else{
     std::string file = vm["file"].as<std::string>();
+    enem  = vm["enem"].as<int>();
+    eneM  = vm["eneM"].as<int>();
     dataFile=file;
     std::cout << "dataFile is "<<dataFile<<std::endl;
-      return 0;
   }
- SubPixAna(dataFile);
+  SubPixAna(dataFile,enem,eneM);
 
   return 0;
 }
 
- int SubPixAna(const TString rootFile){
+ int SubPixAna(const TString rootFile,Int_t energy_m,Int_t energy_M){
 
 #endif
 
-  const int SINGLE=1;
-  const int DOUBLE=1;
-  const int PH1=0;
+   const int PH1=0;
 
   if(!rootFile){
     std::cerr<<"Usage: SubPixAna(root file name)"<<std::endl;
@@ -127,16 +131,32 @@ int main(int argc, char* argv[]){
   Double_t spTh;
   ss>>spTh;
   Double_t cor=TMath::Abs((PH1+spTh)/(PH1-spTh));// correction factor
-  //Double_t cor=1;
   tr->Branch("sca",&sca);
   tr->Branch("sra",&sra);
   tr->Branch("stype",&stype);
+  tr->Branch("ph_merge", &ph_merge);
 
+
+   // Count single & double pix events //
+   Int_t count1;//single
+   Int_t count2;//double
+   std::cout<<"## Start Counting Single & Double Pixel Events ##" <<std::endl;
+  for(int i=0; i<allEntries;i++){
+    etr->GetEntry(i);
+    if((ph_merge>=energy_m) && (ph_merge<=energy_M)){
+      if(type == 10||type == 11){count1++;}
+      if(type == 20||type == 21){count2++;}
+    }
+  }
+
+   // Subpixel Analysis //
+  std::cout<<"## Start Subpixel Analysis ##" <<std::endl;
   gRandom->SetSeed(time(NULL));
-  GetRandomRange(&r,&Rs,&Rw,SINGLE,DOUBLE);//初期化
+  GetRandomRange(&r,&Rs,&Rw,count1,count2);//初期化
   randSX = gRandom->Uniform(-Rs,Rs);
   randSY = gRandom->Uniform(-Rs,Rs);
   randD = gRandom->Uniform(-Rw,Rw);
+
   for(int i=0; i<allEntries;i++){
     etr->GetEntry(i);
     if (type==20 || type==21){
@@ -169,20 +189,35 @@ int main(int argc, char* argv[]){
     }
       tr->Fill();     
     }
+  WriteLogFile(energy_m,energy_M,r,count1,count2);
   tr->Write();
   sf->Close();
   return 0;
 }
 
- void GetRandomRange(Double_t *r,Double_t *Rs,Double_t *Rw,int SINGLE,int DOUBLE)
+ void GetRandomRange(Double_t *r,Double_t *Rs,Double_t *Rw,int isingle,int idouble)
 {
-  Double_t s = (Double_t)SINGLE;
-  Double_t w = (Double_t)DOUBLE;
-  Double_t spw=(Double_t)SINGLE/(Double_t)DOUBLE;
-  *r = (s + w - sqrt(pow(s+w,2)-w*(2*s+w)))/(2*(2*s+w));
+  Double_t dsingle = (Double_t)isingle;
+  Double_t ddouble = (Double_t)idouble;
+  Double_t spw=(Double_t)isingle/(Double_t)idouble;
+  *r = (dsingle + ddouble - sqrt(pow(dsingle+ddouble,2)-ddouble*(2*dsingle+ddouble)))/(2*(2*dsingle+ddouble));
   *Rs = sqrt(spw*(*r)*(1-2*(*r))); // range of single pixel count region [-Rs,Rs]
   *Rw = (1-2*(*r))/2; // range of double pixel count region [-Rw,Rw]
+  return;
 }
+
+ void WriteLogFile(int enem,int eneM,double r,int count1,int count2){
+   ofstream f("log_SubPixAna.txt");
+   time_t t =time(NULL);
+   f<<"Date :"<<ctime(&t)<<std::endl;
+   f<<"Energy Minimum : "<<enem<<std::endl;
+   f<<"Energy Maxmum : "<<eneM<<std::endl;
+   f<<"r : "<<r<<std::endl;
+   f<<"Single Pixel Event : "<<count1<<std::endl;
+   f<<"Double Pixel Event : "<<count2<<std::endl;
+   f.close();
+   return;
+ }
 
  /* Using TTreeReader
 // TTreeReader is able to use from ROOT v6.
